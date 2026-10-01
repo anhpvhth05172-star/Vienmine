@@ -1,8 +1,10 @@
 {
   "key.vienmine.veinmine": "VeinMine (hold)",
   "key.vienmine.cycle": "VeinMine: next shape",
+  "key.vienmine.menu": "VeinMine: shape menu",
   "category.vienmine": "Vienmine",
   "key.category.vienmine.main": "Vienmine",
+  "vienmine.menu.title": "Vienmine shape",
   "vienmine.shape.shapeless": "Shapeless (vein)",
   "vienmine.shape.tunnel": "Tunnel 3x3",
   "vienmine.shape.square": "Square 3x3",
