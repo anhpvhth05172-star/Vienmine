@@ -1,35 +1,38 @@
 package org.veinmine.vienmine.client;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.util.InputUtil;
-import org.lwjgl.glfw.GLFW;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.resources.Identifier;
 import org.veinmine.vienmine.network.VeinmineActivePayload;
 
 public class VienmineClient implements ClientModInitializer {
 
-    public static KeyBinding veinmineKey;
+    public static KeyMapping veinmineKey;
+    private static final KeyMapping.Category VIENMINE_CATEGORY =
+            KeyMapping.Category.register(Identifier.fromNamespaceAndPath("vienmine", "main"));
     private static boolean lastSent = false;
 
     @Override
     public void onInitializeClient() {
-        // Hotkey GIỮ để dùng veinmine, mặc định phím V (đổi được trong Settings -> Controls)
-        veinmineKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+        // Hold-to-veinmine hotkey, defaults to V (rebindable in Settings -> Controls).
+        // InputConstants.getKey avoids hardcoding platform key codes (SDL/GLFW-proof).
+        veinmineKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
                 "key.vienmine.veinmine",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_V,
-                "category.vienmine"
+                InputConstants.Type.KEYBOARD,
+                InputConstants.getKey("key.keyboard.v").getValue(),
+                VIENMINE_CATEGORY
         ));
 
-        // Mỗi tick: nếu trạng thái giữ/thả đổi thì báo cho server
+        // Each tick: if held/released state changed, notify the server.
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client.player == null) return;
             boolean held;
             try {
-                held = veinmineKey.isPressed();
+                held = veinmineKey.isDown();
             } catch (Exception e) {
                 return;
             }
@@ -40,7 +43,7 @@ public class VienmineClient implements ClientModInitializer {
                         ClientPlayNetworking.send(new VeinmineActivePayload(held));
                     }
                 } catch (Exception ignored) {
-                    // Chưa vào server / chưa handshake xong
+                    // Not in a server / handshake not done yet.
                 }
             }
         });

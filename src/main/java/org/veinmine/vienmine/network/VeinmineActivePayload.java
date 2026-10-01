@@ -1,20 +1,20 @@
 package org.veinmine.vienmine.network;
 
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.codec.PacketCodecs;
-import net.minecraft.network.packet.CustomPayload;
-import net.minecraft.util.Identifier;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.Identifier;
 
-public record VeinmineActivePayload(boolean active) implements CustomPayload {
-    public static final CustomPayload.Id<VeinmineActivePayload> ID =
-            new CustomPayload.Id<>(Identifier.of("vienmine", "active"));
+public record VeinmineActivePayload(boolean active) implements CustomPacketPayload {
+    public static final CustomPacketPayload.Type<VeinmineActivePayload> ID =
+            new CustomPacketPayload.Type<>(Identifier.fromNamespaceAndPath("vienmine", "active"));
 
-    public static final PacketCodec<RegistryByteBuf, VeinmineActivePayload> CODEC =
-            PacketCodec.tuple(PacketCodecs.BOOLEAN, VeinmineActivePayload::active, VeinmineActivePayload::new);
+    public static final StreamCodec<RegistryFriendlyByteBuf, VeinmineActivePayload> CODEC =
+            StreamCodec.composite(ByteBufCodecs.BOOL, VeinmineActivePayload::active, VeinmineActivePayload::new);
 
     @Override
-    public Id<? extends CustomPayload> getId() {
+    public Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

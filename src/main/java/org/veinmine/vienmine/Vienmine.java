@@ -5,14 +5,12 @@ import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.ItemStack;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.world.World;
+import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
 import org.veinmine.vienmine.network.VeinmineActivePayload;
 
 import java.util.ArrayDeque;
@@ -35,7 +33,7 @@ public class Vienmine implements ModInitializer {
     // UUIDs of players currently HOLDING the veinmine key (synced from client).
     private static final Set<UUID> ACTIVE = ConcurrentHashMap.newKeySet();
 
-    // Guard against recursion: breakBlock inside AFTER fires AFTER again.
+    // Guard against recursion: destroyBlock inside AFTER fires AFTER again.
     private static final ThreadLocal<Boolean> GUARD = ThreadLocal.withInitial(() -> false);
 
     public static boolean isActive(UUID id) {
@@ -45,10 +43,10 @@ public class Vienmine implements ModInitializer {
     @Override
     public void onInitialize() {
         // Register client->server payload: key held state.
-        PayloadTypeRegistry.playC2S().register(VeinmineActivePayload.ID, VeinmineActivePayload.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(VeinmineActivePayload.ID, VeinmineActivePayload.CODEC);
 
         ServerPlayNetworking.registerGlobalReceiver(VeinmineActivePayload.ID, (payload, context) -> {
-            UUID id = context.player().getUuid();
+            UUID id = context.player().getUUID();
             if (payload.active()) {
                 ACTIVE.add(id);
             } else {
@@ -58,29 +56,27 @@ public class Vienmine implements ModInitializer {
 
         // Cleanup on disconnect.
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) ->
-                ACTIVE.remove(handler.getPlayer().getUuid()));
+                ACTIVE.remove(handler.getPlayer().getUUID()));
 
         // Break 1 block -> also break connected blocks of the SAME type.
         PlayerBlockBreakEvents.AFTER.register((world, player, pos, state, blockEntity) ->
                 onBlockBroken(world, player, pos, state));
     }
 
-    private void onBlockBroken(World world, PlayerEntity player, BlockPos originPos, BlockState originState) {
-        if (world.isClient()) return;
+    private void onBlockBroken(Level world, Player player, BlockPos originPos, BlockState originState) {
+        if (world.isClientSide()) return;
         if (GUARD.get()) return;
         if (player.isCreative() || player.isSpectator()) return;
-        if (!ACTIVE.contains(player.getUuid())) return; // key NOT held -> normal mine
-        if (!(world instanceof ServerWorld serverWorld)) return;
-        if (!(player instanceof ServerPlayerEntity serverPlayer)) return;
+        if (!ACTIVE.contains(player.getUUID())) return; // key NOT held -> normal mine
+        if (!(player instanceof ServerPlayer serverPlayer)) return;
 
         Block originBlock = originState.getBlock();
-        ItemStack tool = player.getMainHandStack();
 
         // BFS in 26 directions (including diagonals) for ore / stone veins.
         Set<BlockPos> visited = new HashSet<>();
         ArrayDeque<BlockPos> queue = new ArrayDeque<>();
-        queue.add(originPos.toImmutable());
-        visited.add(originPos.toImmutable());
+        queue.add(originPos.immutable());
+        visited.add(originPos.immutable());
 
         int broken = 0;
         int searched = 0;
@@ -95,11 +91,14 @@ public class Vienmine implements ModInitializer {
                     for (int dy = -1; dy <= 1; dy++) {
                         for (int dz = -1; dz <= 1; dz++) {
                             if (dx == 0 && dy == 0 && dz == 0) continue;
-                            BlockPos next = current.add(dx, dy, dz);
+                            BlockPos next = current.offset(dx, dy, dz);
 
-                            // Radius limit.
-                            if (next.getSquaredDistance(originPos) > (double) RADIUS * RADIUS) continue;
-                            if (!visited.add(next.toImmutable())) continue;
+                            // Radius limit (manual squared distance).
+                            double ddx = next.getX() - originPos.getX();
+                            double ddy = next.getY() - originPos.getY();
+                            double ddz = next.getZ() - originPos.getZ();
+                            if (ddx * ddx + ddy * ddy + ddz * ddz > (double) RADIUS * RADIUS) continue;
+                            if (!visited.add(next.immutable())) continue;
                             if (searched++ > MAX_SEARCH) break;
 
                             BlockState targetState;
@@ -109,27 +108,25 @@ public class Vienmine implements ModInitializer {
                                 continue;
                             }
                             if (targetState.isAir()) continue;
-                            if (!targetState.isOf(originBlock)) continue;
+                            if (!targetState.is(originBlock)) continue;
 
-                            queue.add(next.toImmutable());
+                            queue.add(next.immutable());
 
                             // Origin already broken, only break the spread.
                             if (next.equals(originPos)) continue;
                             if (broken >= MAX_BLOCKS) break;
 
-                            // Stop if tool is about to break.
-                            if (!tool.isEmpty() && tool.isDamageable()
-                                    && tool.getDamage() >= tool.getMaxDamage() - 1) {
+                            // Stop if the held tool is gone (broke from durability).
+                            if (player.getMainHandItem().isEmpty()) {
                                 queue.clear();
                                 break;
                             }
 
-                            // Break with normal drops, damage tool.
-                            boolean ok = serverWorld.breakBlock(next, true, serverPlayer);
+                            // Full vanilla break: drops (Fortune/Silk Touch), tool damage, stats.
+                            boolean ok = serverPlayer.gameMode.destroyBlock(next);
                             if (ok) {
                                 broken++;
-                                damageTool(serverWorld, serverPlayer);
-                                serverPlayer.addExhaustion(0.005f);
+                                player.causeFoodExhaustion(0.005f);
                             }
                         }
                     }
@@ -137,26 +134,6 @@ public class Vienmine implements ModInitializer {
             }
         } finally {
             GUARD.set(false);
-        }
-    }
-
-    private void damageTool(ServerWorld world, ServerPlayerEntity player) {
-        ItemStack stack = player.getMainHandStack();
-        if (stack.isEmpty() || !stack.isDamageable()) return;
-        try {
-            // Yarn 1.21+: damage(amount, ServerWorld, ServerPlayerEntity, Consumer)
-            stack.damage(1, world, player, item -> {
-            });
-        } catch (NoSuchMethodError | NoClassDefFoundError e) {
-            // Fallback for older mappings: manual damage.
-            try {
-                stack.setDamage(stack.getDamage() + 1);
-                if (stack.getDamage() >= stack.getMaxDamage()) {
-                    stack.decrement(1);
-                }
-            } catch (Exception ignored) {
-            }
-        } catch (Exception ignored) {
         }
     }
 }
