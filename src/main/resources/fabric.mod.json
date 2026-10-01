@@ -1,0 +1,36 @@
+﻿{
+  "schemaVersion": 1,
+  "id": "vienmine",
+  "version": "${version}",
+  "name": "Vienmine",
+  "description": "Hold V to vein-mine connected blocks of the same type.",
+  "authors": [],
+  "contact": {},
+  "license": "All-Rights-Reserved",
+  "icon": "assets/vienmine/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "fabric-datagen": [
+      "org.veinmine.vienmine.client.VienmineDataGenerator"
+    ],
+    "client": [
+      "org.veinmine.vienmine.client.VienmineClient"
+    ],
+    "main": [
+      "org.veinmine.vienmine.Vienmine"
+    ]
+  },
+  "mixins": [
+    "vienmine.mixins.json",
+    {
+      "config": "vienmine.client.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric-api": "*",
+    "minecraft": "${minecraft_version}"
+  }
+}
+
